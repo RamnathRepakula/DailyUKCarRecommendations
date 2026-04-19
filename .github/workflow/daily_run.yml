@@ -1,0 +1,39 @@
+name: 📚 Daily AI Research Digest
+
+on:
+  schedule:
+    - cron: "0 7 * * *"   # Every day at 07:00 UTC
+  workflow_dispatch:        # Manual trigger button
+
+jobs:
+  run-agent:
+    name: Fetch & Summarise Papers
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: ⬇️ Checkout repository
+        uses: actions/checkout@v4
+
+      # ── Install UV ──────────────────────────────────────
+      - name: ⚡ Install UV
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+          enable-cache: true          # caches .venv between runs
+
+      # ── Set up Python via UV ─────────────────────────────
+      - name: 🐍 Set up Python 3.12
+        run: uv python install 3.12
+
+      # ── Install dependencies via UV ──────────────────────
+      - name: 📦 Install dependencies
+        run: uv sync                  # reads pyproject.toml + uv.lock
+
+      # ── Run the agent ────────────────────────────────────
+      - name: 🤖 Run ArXiv Research Agent
+        env:
+          GROQ_API_KEY:       ${{ secrets.GROQ_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: uv run python main.py   # runs inside UV's venv
