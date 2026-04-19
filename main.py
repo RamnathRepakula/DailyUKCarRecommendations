@@ -48,7 +48,7 @@ def scrape_autotrader():
     cars = []
     url = (
         "https://www.autotrader.co.uk/car-search"
-        f"?postcode={LOCATION_POSTCODE}&radius=15&price-to={BUDGET}"
+        f"?postcode={LOCATION_POSTCODE}&radius=30&price-to={BUDGET}"
         "&transmission=Automatic&sort=price-asc&page=1"
     )
     try:
@@ -148,7 +148,7 @@ def scrape_motors():
         "https://www.motors.co.uk/search/car/results/"
         f"?price-to={BUDGET}"
         f"&postcode={LOCATION_POSTCODE}"
-        "&distance=15"
+        "&distance=30"
         "&gearbox=automatic"
         "&page=1"
     )
