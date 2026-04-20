@@ -73,6 +73,73 @@ def scrape_autotrader():
         print(f"[AutoTrader/camoufox] Error: {e}")
     return cars
 
+def scrape_cargurus():
+    cars = []
+    url = (
+        "https://www.cargurus.co.uk/Cars/new/filterResults.action"
+        "?zip=BH1+2PJ"
+        "&distance=100"
+        f"&maxPrice={BUDGET}"
+        "&transmission=AUTOMATIC"
+        "&sortDir=ASC"
+        "&sortType=PRICE"
+        "&entitySelectingHelper.selectedEntity=d2"  # d2 = all cars
+    )
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=20)
+        print(f"[CarGurus] Status: {r.status_code} | Size: {len(r.text)}")
+        soup = BeautifulSoup(r.text, "lxml")
+
+        # CarGurus listing cards
+        cards = soup.select("div[class*='listing'], li[class*='listing'], div[data-listing-id]")
+        if not cards:
+            cards = soup.select("div.cg-dealFinder-result-car")
+        print(f"[CarGurus] Raw cards found: {len(cards)}")
+
+        for card in cards[:25]:
+            try:
+                title_el = card.select_one(
+                    "a[data-testid*='listing'], h4[class*='listing-title'], "
+                    "span[class*='title'], a[class*='car-name']"
+                )
+                price_el = card.select_one(
+                    "span[class*='price'], div[class*='price'], "
+                    "[data-testid*='price']"
+                )
+                link_el  = card.select_one("a[href*='/Cars/']")
+
+                if not title_el or not price_el or not link_el:
+                    continue
+
+                price_digits = "".join(filter(str.isdigit, price_el.text))
+                if not price_digits:
+                    continue
+                price = int(price_digits)
+                if not (500 < price <= BUDGET):
+                    continue
+
+                href = link_el["href"]
+                link = href if href.startswith("http") else "https://www.cargurus.co.uk" + href
+
+                cars.append({
+                    "source":  "CarGurus",
+                    "title":   title_el.text.strip(),
+                    "price":   price,
+                    "mileage": "See listing",
+                    "year":    "See listing",
+                    "link":    link,
+                    "id":      link,
+                })
+            except Exception:
+                continue
+
+    except Exception as e:
+        print(f"[CarGurus] Error: {e}")
+
+    print(f"[CarGurus] Returning {len(cars)} cars")
+    return cars
+
+
 def scrape_autotrader_html():
     """
     HTML fallback — used only if the JSON API is unavailable.
@@ -277,7 +344,8 @@ def scrape_all(seen: set):
     """
     raw = []
     scrapers = [
-        ("AutoTrader", scrape_autotrader),
+        ("CarGurus" , scrape_cargurus),
+        #("AutoTrader", scrape_autotrader),
         #("Gumtree",    scrape_gumtree),
         #("Motors.co.uk", scrape_motors),
     ]
