@@ -75,41 +75,56 @@ def scrape_autotrader():
 
 def scrape_cargurus():
     cars = []
+
+    # Correct URL — location slug format, with price and transmission filters
     url = (
-        "https://www.cargurus.co.uk/Cars/new/filterResults.action"
-        "?zip=BH1+2PJ"
-        "&distance=100"
-        f"&maxPrice={BUDGET}"
+        "https://www.cargurus.co.uk/Cars/spt-used-cars-Bournemouth_L1438513"
+        f"?maxPrice={BUDGET}"
         "&transmission=AUTOMATIC"
-        "&sortDir=ASC"
         "&sortType=PRICE"
-        "&entitySelectingHelper.selectedEntity=d2"  # d2 = all cars
+        "&sortDir=ASC"
     )
+
     try:
         r = requests.get(url, headers=HEADERS, timeout=20)
         print(f"[CarGurus] Status: {r.status_code} | Size: {len(r.text)}")
         soup = BeautifulSoup(r.text, "lxml")
 
-        # CarGurus listing cards
-        cards = soup.select("div[class*='listing'], li[class*='listing'], div[data-listing-id]")
-        if not cards:
-            cards = soup.select("div.cg-dealFinder-result-car")
+        # Each listing is an <a> tag with href containing "listing="
+        cards = soup.select("a[href*='listing=']")
         print(f"[CarGurus] Raw cards found: {len(cards)}")
 
-        for card in cards[:25]:
+        seen_links = set()
+        for card in cards:
             try:
-                title_el = card.select_one(
-                    "a[data-testid*='listing'], h4[class*='listing-title'], "
-                    "span[class*='title'], a[class*='car-name']"
-                )
-                price_el = card.select_one(
-                    "span[class*='price'], div[class*='price'], "
-                    "[data-testid*='price']"
-                )
-                link_el  = card.select_one("a[href*='/Cars/']")
-
-                if not title_el or not price_el or not link_el:
+                # Title — h4 inside the card
+                title_el = card.select_one("h4")
+                if not title_el:
                     continue
+
+                # Price — look for element containing £
+                price_el = card.find(
+                    lambda tag: tag.name in ["span", "div", "h4", "p"]
+                    and "£" in tag.text
+                    and tag.text.strip().startswith("£")
+                )
+                if not price_el:
+                    continue
+
+                # Mileage — text containing "miles"
+                mileage_el = card.find(
+                    lambda tag: tag.name in ["span", "div", "p", "li"]
+                    and "miles" in tag.text.lower()
+                    and len(tag.text.strip()) < 30
+                )
+
+                # Year — look for 4-digit year in the title text
+                title_text = title_el.text.strip()
+                year = "Unknown"
+                for word in title_text.split():
+                    if word.isdigit() and 2000 <= int(word) <= 2025:
+                        year = word
+                        break
 
                 price_digits = "".join(filter(str.isdigit, price_el.text))
                 if not price_digits:
@@ -118,19 +133,33 @@ def scrape_cargurus():
                 if not (500 < price <= BUDGET):
                     continue
 
-                href = link_el["href"]
-                link = href if href.startswith("http") else "https://www.cargurus.co.uk" + href
+                href = card["href"]
+                link = (
+                    "https://www.cargurus.co.uk" + href
+                    if href.startswith("/")
+                    else href
+                )
+                # Strip tracking suffixes
+                link = link.split("?")[0]
+
+                if link in seen_links:
+                    continue
+                seen_links.add(link)
+
+                mileage = mileage_el.text.strip() if mileage_el else "See listing"
 
                 cars.append({
                     "source":  "CarGurus",
-                    "title":   title_el.text.strip(),
+                    "title":   title_text,
                     "price":   price,
-                    "mileage": "See listing",
-                    "year":    "See listing",
+                    "mileage": mileage,
+                    "year":    year,
                     "link":    link,
                     "id":      link,
                 })
-            except Exception:
+
+            except Exception as e:
+                print(f"[CarGurus] Skipping card: {e}")
                 continue
 
     except Exception as e:
