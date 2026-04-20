@@ -7,7 +7,7 @@ on:
 
 jobs:
   run-agent:
-    name: Fetch & Summarise Papers
+    name: Fetch car listings
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -30,8 +30,11 @@ jobs:
       - name: 📦 Install dependencies
         run: uv sync                  # reads pyproject.toml + uv.lock
 
+      - name: Install Playwright browsers
+        run: playwright install chromium --with-deps
+
       # ── Run the agent ────────────────────────────────────
-      - name: 🤖 Run ArXiv Research Agent
+      - name: 🤖 Run Car Recommendations Agent
         env:
           GROQ_API_KEY:       ${{ secrets.GROQ_API_KEY }}
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}

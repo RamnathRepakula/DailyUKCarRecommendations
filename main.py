@@ -5,6 +5,7 @@ import os
 from datetime import datetime
 import time
 from groq import Groq
+from playwright.sync_api import sync_playwright
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -13,7 +14,7 @@ TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 
 SEEN_FILE = "seen_listings.json"
-BUDGET = 6000  # Max price in GBP for car search
+BUDGET = 7500  # Max price in GBP for car search
 LOCATION_POSTCODE = "BH12PJ"  # Bournemouth area postcode for radius search
 
 HEADERS = {
@@ -43,7 +44,163 @@ def save_seen(seen):
 
 # ─── Scrapers ─────────────────────────────────────────────────────────────────
 
+from playwright.sync_api import sync_playwright
+
 def scrape_autotrader():
+    """
+    Uses Playwright headless Chromium to fully render the AutoTrader page
+    exactly as a real browser would — bypassing JS rendering and bot blocks.
+    """
+    cars = []
+    url = (
+        "https://www.autotrader.co.uk/car-search"
+        f"?postcode={LOCATION_POSTCODE}"
+        f"&price-to={BUDGET}"
+        "&radius=100"
+        "&sort=price-asc"
+        "&transmission=Automatic"
+        "&page=1"
+    )
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                ),
+                locale="en-GB",
+                viewport={"width": 1280, "height": 800},
+            )
+            page = context.new_page()
+
+            # Block images/fonts/css to speed up load — we only need the HTML
+            page.route(
+                "**/*",
+                lambda route: route.abort()
+                if route.request.resource_type in ["image", "media", "font", "stylesheet"]
+                else route.continue_()
+            )
+
+            print(f"[AutoTrader] Loading page...")
+            page.goto(url, wait_until="domcontentloaded", timeout=30000)
+
+            # Wait for listing cards to appear in the DOM
+            try:
+                page.wait_for_selector(
+                    "[data-testid='trader-seller-listing'], "
+                    "li[class*='search-page__result'], "
+                    "article[class*='product-card']",
+                    timeout=15000
+                )
+            except Exception:
+                # Dump a snippet for debugging in Actions logs
+                print("[AutoTrader] Selector wait timed out. Page snippet:")
+                print(page.content()[:3000])
+                browser.close()
+                return cars
+
+            html = page.content()
+            browser.close()
+
+        soup = BeautifulSoup(html, "lxml")
+
+        # Try selectors in order — AutoTrader occasionally changes class names
+        selector_attempts = [
+            "[data-testid='trader-seller-listing']",
+            "li[class*='search-page__result']",
+            "article[class*='product-card']",
+            "div[data-advert-id]",
+            "section[data-testid='listing-card']",
+        ]
+        cards = []
+        for sel in selector_attempts:
+            cards = soup.select(sel)
+            if cards:
+                print(f"[AutoTrader] Matched selector '{sel}' — {len(cards)} cards")
+                break
+
+        if not cards:
+            print("[AutoTrader] No cards found after JS render. HTML snippet:")
+            print(html[2000:5000])
+            return cars
+
+        for card in cards[:25]:
+            try:
+                # Title
+                title_el = card.select_one(
+                    "[data-testid='search-listing-title'], "
+                    "h3[class*='product-card-details__title'], "
+                    "h2[class*='title'], "
+                    "a[class*='listing-title']"
+                )
+                # Price
+                price_el = card.select_one(
+                    "[data-testid='search-listing-price'], "
+                    "[class*='product-card-pricing__price'], "
+                    "[class*='price']"
+                )
+                # Link
+                link_el = card.select_one(
+                    "a[href*='/car-details/']"
+                )
+                # Mileage + year
+                mileage_el = card.select_one(
+                    "[data-spec='mileage'], "
+                    "li[class*='mileage'], "
+                    "span[class*='mileage']"
+                )
+                year_el = card.select_one(
+                    "[data-spec='year'], "
+                    "li[class*='year'], "
+                    "span[class*='year']"
+                )
+
+                if not title_el or not price_el or not link_el:
+                    continue
+
+                price_digits = "".join(filter(str.isdigit, price_el.text))
+                if not price_digits:
+                    continue
+                price = int(price_digits)
+                if not (500 < price <= BUDGET):
+                    continue
+
+                href = link_el["href"]
+                link = (
+                    "https://www.autotrader.co.uk" + href.split("?")[0]
+                    if href.startswith("/")
+                    else href.split("?")[0]
+                )
+
+                cars.append({
+                    "source":  "AutoTrader",
+                    "title":   title_el.text.strip(),
+                    "price":   price,
+                    "mileage": mileage_el.text.strip() if mileage_el else "Unknown",
+                    "year":    year_el.text.strip() if year_el else "Unknown",
+                    "link":    link,
+                    "id":      link,
+                })
+
+            except Exception as e:
+                print(f"[AutoTrader] Skipping card: {e}")
+                continue
+
+    except Exception as e:
+        print(f"[AutoTrader] Fatal error: {e}")
+
+    print(f"[AutoTrader] Returning {len(cars)} cars")
+    return cars
+
+def scrape_autotrader_html():
+    """
+    HTML fallback — used only if the JSON API is unavailable.
+    Tries multiple selector patterns since AutoTrader's class names change often.
+    Prints the raw HTML snippet to logs so you can update selectors easily.
+    """
     cars = []
     url = (
         "https://www.autotrader.co.uk/car-search"
@@ -53,41 +210,68 @@ def scrape_autotrader():
     try:
         r = requests.get(url, headers=HEADERS, timeout=20)
         soup = BeautifulSoup(r.text, "html.parser")
-        cards = soup.select("[data-testid='trader-seller-listing']")
+
+        # Try selectors in order of likelihood
+        selector_attempts = [
+            "[data-testid='trader-seller-listing']",
+            "li[data-standout-type]",
+            "article.product-card",
+            "div[data-advert-id]",
+            "li.search-page__result",
+        ]
+        cards = []
+        for sel in selector_attempts:
+            cards = soup.select(sel)
+            if cards:
+                print(f"[AutoTrader HTML] Matched selector: {sel} ({len(cards)} cards)")
+                break
+
         if not cards:
-            cards = soup.select("li[data-standout-type]") or soup.select("article.product-card")
+            # Print HTML snippet to GitHub Actions log for debugging
+            print("[AutoTrader HTML] No selectors matched. Page snippet:")
+            print(r.text[2000:5000])
+            return cars
+
         for card in cards[:25]:
             try:
-                title_el = card.select_one(
-                    "[data-testid='search-listing-title'], h3.product-card-details__title"
+                title_el  = card.select_one(
+                    "[data-testid='search-listing-title'], "
+                    "h3.product-card-details__title, "
+                    "h2[class*='title'], a[class*='title']"
                 )
-                price_el = card.select_one(
-                    "[data-testid='search-listing-price'], div.product-card-pricing__price"
+                price_el  = card.select_one(
+                    "[data-testid='search-listing-price'], "
+                    "div.product-card-pricing__price, "
+                    "[class*='price']"
                 )
-                mileage_el = card.select_one("[data-spec='mileage'], li.atc-type-picanto--medium")
-                year_el = card.select_one("[data-spec='year']")
-                link_el = card.select_one("a[href*='/car-details/']")
+                link_el   = card.select_one("a[href*='/car-details/']")
+                mileage_el = card.select_one("[data-spec='mileage'], [class*='mileage']")
+                year_el    = card.select_one("[data-spec='year'], [class*='year']")
 
                 if not title_el or not price_el or not link_el:
                     continue
+
                 price = int("".join(filter(str.isdigit, price_el.text)))
                 if not (500 < price <= BUDGET):
                     continue
+
                 link = "https://www.autotrader.co.uk" + link_el["href"].split("?")[0]
                 cars.append({
-                    "source": "AutoTrader",
-                    "title": title_el.text.strip(),
-                    "price": price,
+                    "source":  "AutoTrader",
+                    "title":   title_el.text.strip(),
+                    "price":   price,
                     "mileage": mileage_el.text.strip() if mileage_el else "Unknown",
-                    "year": year_el.text.strip() if year_el else "Unknown",
-                    "link": link,
-                    "id": link,
+                    "year":    year_el.text.strip() if year_el else "Unknown",
+                    "link":    link,
+                    "id":      link,
                 })
             except Exception:
                 continue
+
     except Exception as e:
-        print(f"[AutoTrader] Error: {e}")
-    print(f"[AutoTrader] {len(cars)} listings")
+        print(f"[AutoTrader HTML] Error: {e}")
+
+    print(f"[AutoTrader HTML fallback] {len(cars)} cars")
     return cars
 
 
@@ -216,8 +400,8 @@ def scrape_all(seen: set):
     raw = []
     scrapers = [
         ("AutoTrader", scrape_autotrader),
-        ("Gumtree",    scrape_gumtree),
-        ("Motors.co.uk", scrape_motors),
+        #("Gumtree",    scrape_gumtree),
+        #("Motors.co.uk", scrape_motors),
     ]
     source_stats = {}
     for name, fn in scrapers:
@@ -362,9 +546,9 @@ def run():
 
     # Claude can handle ~50 listings in one shot at haiku pricing
     batch = new_cars[:50]
-    analyses = analyse_with_claude(batch)
-    message = format_message(batch, analyses, source_stats)
-    send_telegram(message)
+    #analyses = analyse_with_claude(batch)
+    #message = format_message(batch, analyses, source_stats)
+    #send_telegram(message)
 
     # Persist all seen IDs (not just the batch)
     seen.update(c["id"] for c in new_cars)
