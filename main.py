@@ -10,7 +10,6 @@ load_dotenv()
 
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
-ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 
 SEEN_FILE = "seen_listings.json"
