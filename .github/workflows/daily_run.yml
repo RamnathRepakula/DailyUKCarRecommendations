@@ -2,7 +2,7 @@ name: 📚 Daily AI Research Digest
 
 on:
   schedule:
-    - cron: "0 7 * * *"   # Every day at 07:00 UTC
+    - cron: "0 18 * * *"   # Every day at 06 PM UTC
   workflow_dispatch:        # Manual trigger button
 
 jobs:
