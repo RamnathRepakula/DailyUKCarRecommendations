@@ -30,8 +30,33 @@ jobs:
       - name: 📦 Install dependencies
         run: uv sync                  # reads pyproject.toml + uv.lock
 
+      - name: Install system dependencies for Playwright
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2t64 \
+            libatk-bridge2.0-0 \
+            libatk1.0-0 \
+            libcups2 \
+            libdbus-1-3 \
+            libdrm2 \
+            libgbm1 \
+            libgtk-3-0 \
+            libnspr4 \
+            libnss3 \
+            libx11-xcb1 \
+            libxcomposite1 \
+            libxdamage1 \
+            libxfixes3 \
+            libxrandr2 \
+            libxshmfence1 \
+            xvfb
+
       - name: Install Playwright browsers
-        run: uv run python -m playwright install chromium --with-deps
+        run: uv run python -m playwright install chromium
+
+      - name: Verify Playwright install
+        run: uv run python -m playwright --version
 
       # ── Run the agent ────────────────────────────────────
       - name: 🤖 Run Car Recommendations Agent
