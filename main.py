@@ -47,7 +47,7 @@ def save_seen(seen):
 
 from camoufox.sync_api import Camoufox
 
-def scrape_autotrader_camoufox():
+def scrape_autotrader():
     cars = []
     url = (
         "https://www.autotrader.co.uk/car-search"
@@ -72,7 +72,7 @@ def scrape_autotrader_camoufox():
     except Exception as e:
         print(f"[AutoTrader/camoufox] Error: {e}")
     return cars
-    
+
 def scrape_autotrader_html():
     """
     HTML fallback — used only if the JSON API is unavailable.
