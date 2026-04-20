@@ -14,5 +14,6 @@ dependencies = [
     "beautifulsoup4==4.12.3",
     "lxml==5.2.1",
     "groq==0.9.0",
-    "playwright==1.44.0"
+    "playwright==1.44.0",
+    "camoufox[geoip]==0.4.11"
 ]
