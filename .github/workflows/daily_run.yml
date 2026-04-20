@@ -31,7 +31,7 @@ jobs:
         run: uv sync                  # reads pyproject.toml + uv.lock
 
       - name: Install Playwright browsers
-        run: playwright install chromium --with-deps
+        run: uv run python -m playwright install chromium --with-deps
 
       # ── Run the agent ────────────────────────────────────
       - name: 🤖 Run Car Recommendations Agent
